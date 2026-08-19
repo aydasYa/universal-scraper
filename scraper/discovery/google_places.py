@@ -213,7 +213,7 @@ class GooglePlacesClient:
             return data
         raise RuntimeError(f"Google Places API retry loop exhausted: {last_error}")
 
-    def text_search(self, keyword: str, tile: Tile) -> list[dict[str, Any]]:
+    def text_search(self, keyword: str, tile: Tile, included_type: str = "") -> list[dict[str, Any]]:
         lat, lon = tile.center
         payload: dict[str, Any] = {
             "textQuery": keyword,
@@ -228,6 +228,8 @@ class GooglePlacesClient:
                 }
             },
         }
+        if included_type:
+            payload["includedType"] = included_type
         places: list[dict[str, Any]] = []
         while True:
             data = self._post(TEXT_SEARCH_URL, payload, TEXT_SEARCH_FIELD_MASK)
@@ -251,6 +253,7 @@ def discover_google_places(
     smart_split: bool = True,
     split_min_new_place_ids: int = 8,
     split_min_new_ratio: float = 0.15,
+    included_type: str = "",
     client: GooglePlacesClient | None = None,
 ) -> list[dict[str, Any]]:
     client = client or GooglePlacesClient()
@@ -280,7 +283,7 @@ def discover_google_places(
             LOGGER.info("discover keyword=%s tile=%s depth=%s", keyword, tile.id, tile.depth)
             checkpoints.write(keyword, tile, "started")
             try:
-                results = client.text_search(keyword, tile)
+                results = client.text_search(keyword, tile, included_type=included_type)
                 place_ids = [place.get("id") for place in results if place.get("id")]
                 keyword_new_ids = [place_id for place_id in place_ids if place_id not in keyword_seen_place_ids]
                 keyword_known_ids = len(place_ids) - len(keyword_new_ids)

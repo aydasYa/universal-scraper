@@ -174,7 +174,7 @@ def process_raw_to_outputs(
     manuell: list[PlaceRecord] = []
     aussortiert: list[PlaceRecord] = list(discarded_duplicates)
     for record in deduped:
-        classify_record(record)
+        classify_record(record, config)
         if record.klassifizierung == "komplett":
             komplett.append(record)
         elif record.klassifizierung == "manuelle_pruefung":

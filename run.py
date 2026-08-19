@@ -19,10 +19,10 @@ Empfohlene Aufrufe:
       Zeigt diese Kurzuebersicht.
 
   python main.py export
-      Vorhandene Google-Rohdaten schnell zu Excel verarbeiten, ohne Website-Crawling.
+      Vorhandene Rohdaten des aktiven Projekts schnell zu Excel verarbeiten, ohne Website-Crawling.
 
   python main.py enrich
-      Vorhandene Google-Rohdaten zu Excel verarbeiten und Websites nach E-Mails durchsuchen.
+      Vorhandene Rohdaten des aktiven Projekts zu Excel verarbeiten und Websites nach E-Mails durchsuchen.
 
   python main.py test
       Sicherer kleiner Berlin-Testlauf mit Google Places und Resume.
@@ -51,7 +51,7 @@ Discovery-Feintuning:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Deutschlandweiter Google-Places-Friseur-Scraper",
+        description="Universeller Google-Places-Standort-Scraper",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=dedent(COMMAND_GUIDE),
     )
@@ -61,11 +61,11 @@ def parse_args() -> argparse.Namespace:
         choices=["commands", "export", "enrich", "test", "plan"],
         help="Einfacher Modus. Nutze 'commands' fuer die wichtigsten Aufrufe.",
     )
-    parser.add_argument("--config", default="config/friseure.yaml", help="Branchen-Konfiguration mit den aktiven Suchbegriffen.")
-    parser.add_argument("--raw-dir", default="data/raw/google_places", help="Ordner mit Google-Places-Rohdaten.")
-    parser.add_argument("--processed-dir", default="data/processed", help="Ordner fuer verarbeitete JSONL-Daten.")
-    parser.add_argument("--final-dir", default="data/final", help="Ordner fuer finale XLSX-Dateien.")
-    parser.add_argument("--reports-dir", default="data/reports", help="Ordner fuer Reports wie keyword_statistik.xlsx.")
+    parser.add_argument("--config", default="config/active.yaml", help="Projekt-Konfiguration mit Suchprofil und Suchbegriffen.")
+    parser.add_argument("--raw-dir", help="Ordner mit Google-Places-Rohdaten. Default: data/projects/<slug>/raw/google_places.")
+    parser.add_argument("--processed-dir", help="Ordner fuer verarbeitete JSONL-Daten. Default: data/projects/<slug>/processed.")
+    parser.add_argument("--final-dir", help="Ordner fuer finale XLSX-Dateien. Default: data/projects/<slug>/final.")
+    parser.add_argument("--reports-dir", help="Ordner fuer Reports. Default: data/projects/<slug>/reports.")
     parser.add_argument("--test-region", choices=["berlin"], help="Sicherer kleiner Testlauf.")
     parser.add_argument("--country", choices=["germany"], help="Zielland fuer bewussten Full Run.")
     parser.add_argument("--full-run", action="store_true", help="Muss fuer den Deutschlandlauf explizit gesetzt werden.")
@@ -76,8 +76,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-email", action="store_true", help="Website-Crawling fuer E-Mail-Adressen ueberspringen.")
     parser.add_argument(
         "--google-checkpoint",
-        default="data/checkpoints/google_places.jsonl",
-        help="JSONL-Checkpoint-Datei fuer Google-Places-Discovery.",
+        help="JSONL-Checkpoint-Datei fuer Google-Places-Discovery. Default: data/projects/<slug>/checkpoints/google_places.jsonl.",
     )
     parser.add_argument(
         "--no-smart-split",
@@ -102,8 +101,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--contact-workers", type=int, default=4, help="Parallele Website-Pruefungen fuer E-Mail-Enrichment.")
     parser.add_argument(
         "--contact-checkpoint",
-        default="data/checkpoints/contact_enrichment.jsonl",
-        help="JSONL-Checkpoint-Datei fuer E-Mail-Enrichment.",
+        help="JSONL-Checkpoint-Datei fuer E-Mail-Enrichment. Default: data/projects/<slug>/checkpoints/contact_enrichment.jsonl.",
     )
     parser.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"], help="Detailgrad der Logs.")
     parser.add_argument(
@@ -135,10 +133,24 @@ def apply_command_defaults(args: argparse.Namespace) -> None:
         args.dry_run = True
 
 
+def apply_project_paths(args: argparse.Namespace, config) -> None:
+    args.raw_dir = args.raw_dir or str(config.raw_dir)
+    args.processed_dir = args.processed_dir or str(config.processed_dir)
+    args.final_dir = args.final_dir or str(config.final_dir)
+    args.reports_dir = args.reports_dir or str(config.reports_dir)
+    args.google_checkpoint = args.google_checkpoint or str(config.google_checkpoint_path)
+    args.contact_checkpoint = args.contact_checkpoint or str(config.contact_checkpoint_path)
+
+
 def print_run_summary(args: argparse.Namespace, config, tiles: list, planned: int) -> None:
     mode = args.command or "flags"
     print(f"Laufmodus: {mode}")
+    print(f"Projekt: {config.name} ({config.slug})")
+    if config.category:
+        print("Kategorie:", config.category)
     print("Suchbegriffe:", ", ".join(config.search_terms))
+    if config.google_included_type:
+        print("Google Type-Filter:", config.google_included_type)
     print("Rohdaten:", args.raw_dir)
     print("Outputs:", args.final_dir)
     print("Reports:", args.reports_dir)
@@ -179,6 +191,7 @@ def _main() -> int:
     load_dotenv()
     apply_command_defaults(args)
     config = load_config(args.config)
+    apply_project_paths(args, config)
     if args.test_region == "berlin":
         tiles = berlin_test_tiles()
     elif args.country == "germany" and args.full_run:
@@ -216,6 +229,7 @@ def _main() -> int:
             smart_split=args.smart_split,
             split_min_new_place_ids=args.split_min_new_place_ids,
             split_min_new_ratio=args.split_min_new_ratio,
+            included_type=config.google_included_type,
         )
     stats = process_raw_to_outputs(
         config,

@@ -1,13 +1,13 @@
-# Deutschlandweiter Friseur-Scraper
+# Universeller Standort-Scraper
 
-Robuste Pipeline fuer physische Friseur- und Barbershop-Standorte in Deutschland. Discovery erfolgt in Version 1 ausschliesslich ueber Google Places API (New).
+Robuste Pipeline fuer physische lokale Unternehmensstandorte in Deutschland. Discovery erfolgt aktuell ueber Google Places API (New), die Branche wird aber nicht mehr hart im Code festgelegt.
 
-Aktive Suchbegriffe aus [config/friseure.yaml](config/friseure.yaml):
+Das aktive Suchprofil steht in [config/active.yaml](config/active.yaml). Dort stellst du ein, ob du z.B. Friseursalons, Juweliere oder spaeter eine andere Zielgruppe suchen willst.
 
-- Herrenfriseur
-- Barbershop
-- Damenfriseur
-- Friseursalon
+Beispiele liegen unter:
+
+- [config/examples/friseursalons_de.yaml](config/examples/friseursalons_de.yaml)
+- [config/examples/juweliere_de.yaml](config/examples/juweliere_de.yaml)
 
 ## Setup
 
@@ -25,12 +25,92 @@ In `.env` muss `PLACES_API_KEY` gesetzt werden. Secrets gehoeren nicht ins Repos
 1. Places API (New) Text Search mit Deutschland-Raster, Pagination, FieldMask und Kachelsplitting
 2. Keyword-Provenienz pro Google Place ID zusammenfuehren
 3. Standorte konservativ deduplizieren
-4. Friseur-Relevanz bewerten
+4. Relevanz anhand des aktiven Suchprofils bewerten
 5. Websites aus Google Places nach E-Mail-Adressen durchsuchen
 6. Final klassifizieren
 7. Drei getrennte XLSX-Dateien exportieren
 
-Rohdaten liegen unter `data/raw/google_places/`. Aenderungen an Deduping, Klassifizierung oder XLSX-Export koennen daraus erneut verarbeitet werden, ohne Google erneut abzufragen.
+Rohdaten liegen standardmaessig unter `data/projects/<slug>/raw/google_places/`. Der `<slug>` kommt aus `config/active.yaml`.
+
+Beispiel:
+
+```text
+project.slug: friseursalons_de
+```
+
+ergibt:
+
+```text
+data/projects/friseursalons_de/raw/google_places/
+data/projects/friseursalons_de/final/
+data/projects/friseursalons_de/reports/
+data/projects/friseursalons_de/checkpoints/
+```
+
+Aenderungen an Deduping, Klassifizierung oder XLSX-Export koennen aus vorhandenen Rohdaten erneut verarbeitet werden, ohne Google erneut abzufragen.
+
+## Suchprofil wechseln
+
+Du bearbeitest nur:
+
+```text
+config/active.yaml
+```
+
+Minimum:
+
+```yaml
+project:
+  slug: juweliere_de
+  name: Juweliere Deutschland
+
+search:
+  terms:
+    - Juwelier
+    - Goldschmied
+```
+
+Empfohlen mit Google-Type-Filter und Relevanzregeln:
+
+```yaml
+project:
+  slug: juweliere_de
+  name: Juweliere Deutschland
+  category: juweliere
+
+search:
+  terms:
+    - Juwelier
+    - Goldschmied
+    - Schmuckgeschaeft
+    - Trauringe
+    - Uhren Schmuck
+
+google:
+  included_type: jewelry_store
+
+relevance:
+  positive_terms:
+    - jewelry_store
+    - juwelier
+    - goldschmied
+    - schmuck
+
+  uncertain_terms:
+    - accessoires
+    - mode
+
+  negative_terms:
+    - pawn_shop
+    - bank
+```
+
+Optionale Felder duerfen fehlen:
+
+- `google.included_type` fehlt: Google sucht ohne Type-Filter.
+- `relevance.positive_terms` fehlt: Suchbegriffe plus optionaler Google-Type zaehlen positiv.
+- `relevance.uncertain_terms` fehlt: keine unsicheren Begriffe.
+- `relevance.negative_terms` fehlt: keine negativen Begriffe.
 
 ## Klare Kurzbefehle
 
@@ -44,13 +124,13 @@ python main.py commands
 python main.py export
 ```
 
-Verarbeitet vorhandene Rohdaten schnell zu Excel, ohne Google und ohne Website-Crawling.
+Verarbeitet vorhandene Rohdaten des aktiven Suchprofils schnell zu Excel, ohne Google und ohne Website-Crawling.
 
 ```bash
 python main.py enrich
 ```
 
-Verarbeitet vorhandene Rohdaten zu Excel und durchsucht vorhandene Websites nach E-Mail-Adressen. Fortschritt wird im Contact-Checkpoint gespeichert.
+Verarbeitet vorhandene Rohdaten des aktiven Suchprofils zu Excel und durchsucht vorhandene Websites nach E-Mail-Adressen. Fortschritt wird im Contact-Checkpoint gespeichert.
 
 ```bash
 python main.py test
@@ -70,7 +150,7 @@ Der bewusste Deutschlandlauf bleibt absichtlich die explizite Langform, weil er 
 python main.py --country germany --full-run --resume
 ```
 
-Bei jedem Lauf zeigt die CLI jetzt Modus, Rohdatenordner, Outputordner, Reports, Discovery-Status, Checkpoints und E-Mail-Enrichment-Einstellungen an.
+Bei jedem Lauf zeigt die CLI Modus, Projekt, Suchbegriffe, Rohdatenordner, Outputordner, Reports, Discovery-Status, Checkpoints und E-Mail-Enrichment-Einstellungen an.
 
 ## Sicherer Testlauf
 
@@ -134,9 +214,9 @@ Das kann mehr Treffer in Grenzfaellen finden, erzeugt aber deutlich mehr Rohdupl
 
 ## Resume und Checkpoints
 
-Google-Checkpoints werden unter `data/checkpoints/google_places.jsonl` gespeichert. Der Schluessel besteht aus `keyword + tile`. Mit `--resume` werden erfolgreiche Keyword/Kachel-Kombinationen uebersprungen.
+Google-Checkpoints werden unter `data/projects/<slug>/checkpoints/google_places.jsonl` gespeichert. Der Schluessel besteht aus `keyword + tile`. Mit `--resume` werden erfolgreiche Keyword/Kachel-Kombinationen uebersprungen.
 
-Contact-Checkpoints werden unter `data/checkpoints/contact_enrichment.jsonl` gespeichert. Bereits gepruefte Websites werden beim naechsten Lauf wiederverwendet, auch wenn keine E-Mail gefunden wurde.
+Contact-Checkpoints werden unter `data/projects/<slug>/checkpoints/contact_enrichment.jsonl` gespeichert. Bereits gepruefte Websites werden beim naechsten Lauf wiederverwendet, auch wenn keine E-Mail gefunden wurde.
 
 Abbruchverhalten:
 
@@ -150,19 +230,36 @@ Abbruchverhalten:
 
 Der Hauptoutput besteht aus drei getrennten Dateien:
 
-- `data/final/alles_komplett.xlsx`: akzeptierte relevante Friseur-/Barbershop-Standorte
-- `data/final/manuelle_pruefung.xlsx`: unsichere Branchen- oder Dedup-Faelle
-- `data/final/aussortiert.xlsx`: klare irrelevante, geschlossene oder verworfene Duplikate
+- `data/projects/<slug>/final/alles_komplett.xlsx`: akzeptierte relevante Standorte
+- `data/projects/<slug>/final/manuelle_pruefung.xlsx`: unsichere Branchen- oder Dedup-Faelle
+- `data/projects/<slug>/final/aussortiert.xlsx`: klare irrelevante, geschlossene oder verworfene Duplikate
 
-Zusaetzlich entsteht `data/reports/keyword_statistik.xlsx` mit Recall-Statistik je Suchbegriff. Die Datei enthaelt neben der Gesamtzahl `auch_ueber_andere_keywords` jetzt auch:
+Zusaetzlich entsteht `data/projects/<slug>/reports/keyword_statistik.xlsx` mit Recall-Statistik je Suchbegriff. Die Datei enthaelt neben der Gesamtzahl `auch_ueber_andere_keywords` auch:
 
 - `auch_ueber_andere_keywords_details`: andere Keywords mit Anzahl, z.B. `Barbershop: 120; Damenfriseur: 40`
 - `keyword_kombinationen_details`: Kombinationen der Suchbegriffe mit Anzahl
-- `auch_kw_herrenfriseur`, `auch_kw_barbershop`, `auch_kw_damenfriseur`, `auch_kw_friseursalon`: numerische Ueberschneidungen je Keyword
+- `auch_kw_*`: numerische Ueberschneidungen je aktivem Suchbegriff
 
 ## Keyword-Provenienz
 
-Jeder Standort behaelt `erstfund_keyword`, `gefunden_durch_suchbegriffe`, `anzahl_suchbegriffe` und die vier Boolean-Spalten `kw_herrenfriseur`, `kw_barbershop`, `kw_damenfriseur`, `kw_friseursalon`.
+Jeder Standort behaelt `erstfund_keyword`, `gefunden_durch_suchbegriffe`, `anzahl_suchbegriffe` und automatische Boolean-Spalten fuer alle Suchbegriffe.
+
+Beispiel Friseursalons:
+
+```text
+kw_herrenfriseur
+kw_barbershop
+kw_damenfriseur
+kw_friseursalon
+```
+
+Beispiel Juweliere:
+
+```text
+kw_juwelier
+kw_goldschmied
+kw_schmuckgeschaeft
+```
 
 ## Deduplizierung
 
@@ -172,12 +269,12 @@ Eine Zeile entspricht einem physischen Standort. Gleiche Google Place ID wird au
 
 Wenn Google Places eine Website liefert, werden Startseite und typische Kontakt-/Impressumsseiten per HTTP durchsucht. Erkannt werden `mailto:` und sichtbare E-Mail-Adressen. Fehlende E-Mail disqualifiziert keinen Standort.
 
-Der Fortschritt wird unter `data/checkpoints/contact_enrichment.jsonl` gecached. Ein Abbruch waehrend des E-Mail-Crawlings verliert dadurch beim naechsten Lauf nicht mehr alle bereits geprueften Websites. Langsame Websites werden mit kurzem Timeout uebersprungen.
+Der Fortschritt wird unter `data/projects/<slug>/checkpoints/contact_enrichment.jsonl` gecached. Ein Abbruch waehrend des E-Mail-Crawlings verliert dadurch beim naechsten Lauf nicht mehr alle bereits geprueften Websites. Langsame Websites werden mit kurzem Timeout uebersprungen.
 
 Steuerbare Optionen:
 
 ```bash
-python main.py enrich --contact-timeout 5 --contact-workers 4 --contact-checkpoint data/checkpoints/contact_enrichment.jsonl
+python main.py enrich --contact-timeout 5 --contact-workers 4
 ```
 
 Terminalmeldungen:
