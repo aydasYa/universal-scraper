@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from openpyxl import load_workbook
 
-from scraper.config import BranchConfig
+from scraper.config import BranchConfig, load_config
 from scraper.costs import estimate_google_places_cost
 from scraper.discovery.google_places import CheckpointStore, GooglePlacesClient, Tile, discover_google_places
 from scraper.enrichment.contacts import EmailCandidate, enrich_contacts
@@ -21,7 +21,14 @@ from scraper.pipeline import build_keyword_statistics, load_raw_records, process
 
 
 TERMS = ["Herrenfriseur", "Barbershop", "Damenfriseur", "Friseursalon"]
-CONFIG = BranchConfig(slug="friseure", name="Friseure", search_terms=TERMS)
+CONFIG = BranchConfig(
+    slug="friseure",
+    name="Friseure",
+    search_terms=TERMS,
+    positive_terms=["hair_salon", "friseur", "barbershop"],
+    uncertain_terms=["beauty_salon"],
+    negative_terms=["car_repair"],
+)
 
 
 def rec(place_id: str, name: str, keyword: str = "Friseursalon", address: str = "Musterstr 1, 10115 Berlin", website: str = "") -> PlaceRecord:
@@ -90,13 +97,91 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(kwargs["json"]["textQuery"], "Friseursalon")
         self.assertEqual(kwargs["json"]["regionCode"], "DE")
         self.assertIn("locationBias", kwargs["json"])
+        self.assertNotIn("includedType", kwargs["json"])
+
+    def test_google_places_text_search_supports_included_type(self) -> None:
+        class Response:
+            status_code = 200
+
+            def raise_for_status(self) -> None:
+                return None
+
+            def json(self) -> dict:
+                return {"places": []}
+
+        with patch("scraper.discovery.google_places.requests.post", return_value=Response()) as post:
+            client = GooglePlacesClient(api_key="test-key")
+            client.text_search("Juwelier", Tile(52.4, 13.3, 52.5, 13.4), included_type="jewelry_store")
+
+        _, kwargs = post.call_args
+        self.assertEqual(kwargs["json"]["includedType"], "jewelry_store")
+
+    def test_modern_config_loads_project_profile(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "active.yaml"
+            config_path.write_text(
+                """
+project:
+  slug: juweliere_de
+  name: Juweliere Deutschland
+  category: juweliere
+search:
+  terms:
+    - Juwelier
+    - Goldschmied
+google:
+  included_type: jewelry_store
+relevance:
+  positive_terms:
+    - jewelry_store
+    - juwelier
+""",
+                encoding="utf-8",
+            )
+
+            config = load_config(config_path)
+
+        self.assertEqual(config.slug, "juweliere_de")
+        self.assertEqual(config.search_terms, ["Juwelier", "Goldschmied"])
+        self.assertEqual(config.google_included_type, "jewelry_store")
+        self.assertEqual(config.raw_dir.as_posix(), "data/projects/juweliere_de/raw/google_places")
+        self.assertEqual(config.uncertain_terms, [])
+        self.assertEqual(config.negative_terms, [])
+
+    def test_modern_config_positive_terms_fallback(self) -> None:
+        config = BranchConfig(
+            slug="minimal",
+            name="Minimal",
+            search_terms=["Juwelier", "Goldschmied"],
+            google_included_type="jewelry_store",
+        )
+
+        self.assertEqual(config.effective_positive_terms, ["Juwelier", "Goldschmied", "jewelry_store"])
+
+    def test_modern_config_rejects_unsafe_slug(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "active.yaml"
+            config_path.write_text(
+                """
+project:
+  slug: ../kaputt
+  name: Kaputt
+search:
+  terms:
+    - Test
+""",
+                encoding="utf-8",
+            )
+
+            with self.assertRaises(ValueError):
+                load_config(config_path)
 
     def test_discovery_resume_enqueues_children_for_completed_split_tile(self) -> None:
         class FakeClient:
             def __init__(self) -> None:
                 self.calls: list[Tile] = []
 
-            def text_search(self, keyword: str, tile: Tile) -> list[dict]:
+            def text_search(self, keyword: str, tile: Tile, included_type: str = "") -> list[dict]:
                 self.calls.append(tile)
                 return []
 
@@ -128,7 +213,7 @@ class PipelineTests(unittest.TestCase):
             def __init__(self) -> None:
                 self.calls: list[Tile] = []
 
-            def text_search(self, keyword: str, tile: Tile) -> list[dict]:
+            def text_search(self, keyword: str, tile: Tile, included_type: str = "") -> list[dict]:
                 self.calls.append(tile)
                 return [{"id": f"pid-{index}", "displayName": {"text": f"Salon {index}"}} for index in range(60)]
 
@@ -235,6 +320,37 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(clear.klassifizierung, "komplett")
         self.assertEqual(unclear.klassifizierung, "manuelle_pruefung")
         self.assertEqual(bad.klassifizierung, "aussortiert")
+
+    def test_classification_uses_project_relevance_terms(self) -> None:
+        config = BranchConfig(
+            slug="juweliere_de",
+            name="Juweliere Deutschland",
+            search_terms=["Juwelier"],
+            positive_terms=["jewelry_store", "juwelier"],
+            uncertain_terms=[],
+            negative_terms=["hair_salon"],
+        )
+        jewelry = classify_record(
+            PlaceRecord(
+                firmenname="Gold Juwelier",
+                google_places_id="pid-1",
+                google_primary_type="jewelry_store",
+                google_types="jewelry_store, store",
+            ),
+            config,
+        )
+        salon = classify_record(
+            PlaceRecord(
+                firmenname="Salon",
+                google_places_id="pid-2",
+                google_primary_type="hair_salon",
+                google_types="hair_salon",
+            ),
+            config,
+        )
+
+        self.assertEqual(jewelry.klassifizierung, "komplett")
+        self.assertEqual(salon.klassifizierung, "aussortiert")
 
     def test_xlsx_outputs_from_fixture_pipeline(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

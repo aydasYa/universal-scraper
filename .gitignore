@@ -5,6 +5,7 @@ __pycache__/
 .env
 .DS_Store
 data/raw/
+data/projects/
 data/checkpoints/
 data/processed/
 data/final/

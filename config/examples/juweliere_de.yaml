@@ -1,0 +1,38 @@
+project:
+  slug: juweliere_de
+  name: Juweliere Deutschland
+  category: juweliere
+
+search:
+  terms:
+    - Juwelier
+    - Goldschmied
+    - Schmuckgeschaeft
+    - Trauringe
+    - Uhren Schmuck
+
+google:
+  included_type: jewelry_store
+
+relevance:
+  positive_terms:
+    - jewelry_store
+    - juwelier
+    - goldschmied
+    - schmuck
+    - schmuckgeschaeft
+    - trauringe
+    - uhren
+
+  uncertain_terms:
+    - accessoires
+    - mode
+    - gift_shop
+    - geschenkartikel
+
+  negative_terms:
+    - pawn_shop
+    - bank
+    - shopping_mall
+    - clothing_store
+    - fashion
